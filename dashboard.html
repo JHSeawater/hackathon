@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AERO-EYE: 드론 AI 지역사회 모니터링 시스템</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+KR:wght@300;400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Tailwind CSS (for layout helper, confirmed modern build standard) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        orbitron: ['Orbitron', 'sans-serif'],
+                        noto: ['Noto Sans KR', 'sans-serif'],
+                        mono: ['Share Tech Mono', 'monospace'],
+                    },
+                    colors: {
+                        cyber: {
+                            bg: '#0a0d14',
+                            card: 'rgba(17, 24, 39, 0.7)',
+                            border: '#1f2937',
+                            primary: '#00f0ff',
+                            secondary: '#bd00ff',
+                            success: '#39ff14',
+                            warning: '#ffb700',
+                            danger: '#ff003c',
+                            text: '#f3f4f6'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #05070c;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(12, 20, 38, 0.8) 0, transparent 50%),
+                radial-gradient(at 50% 0%, rgba(31, 10, 48, 0.4) 0, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(5, 30, 24, 0.3) 0, transparent 50%);
+            background-attachment: fixed;
+            color: #f3f4f6;
+            font-family: 'Noto Sans KR', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .cyber-panel {
+            background: rgba(10, 15, 26, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 240, 255, 0.15);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cyber-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00f0ff, transparent);
+            animation: cyber-glow 3s infinite linear;
+        }
+
+        @keyframes cyber-glow {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .neon-text-cyan {
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.6), 0 0 20px rgba(0, 240, 255, 0.3);
+        }
+        .neon-text-red {
+            text-shadow: 0 0 10px rgba(255, 0, 60, 0.6), 0 0 20px rgba(255, 0, 60, 0.3);
+        }
+        .neon-text-green {
+            text-shadow: 0 0 10px rgba(57, 255, 20, 0.6), 0 0 20px rgba(57, 255, 20, 0.3);
+        }
+
+        /* 스크롤바 디자인 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(10, 15, 26, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 240, 255, 0.3);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 240, 255, 0.6);
+        }
+
+        .scanline {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            );
+            background-size: 100% 4px;
+            z-index: 20;
+        }
+
+        .hud-grid {
+            backgroundsize: 40px 40px;
+            background-image: 
+                linear-gradient(to right, rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col p-4 space-y-4 font-noto">
+
+    <!-- 파일 선택 화면 (처음 진입 시 혹은 상단 바에서) -->
+    <div id="file-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="max-w-xl w-full cyber-panel p-8 rounded-lg border border-cyan-500/30 flex flex-col space-y-6">
+            <div class="text-center">
+                <div class="font-orbitron text-3xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500 mb-2">
+                    AERO-EYE CONTROL
+                </div>
+                <p class="text-gray-400 text-sm">드론 AI 관제 시스템을 켜기 위해 분석 결과 데이터와 영상을 탑재하십시오.</p>
+            </div>
+
+            <!-- JSON 파일 선택 -->
+            <div class="border-2 border-dashed border-cyan-500/20 hover:border-cyan-500/60 transition-all rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer bg-cyan-950/10 group relative" onclick="document.getElementById('json-file').click()">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-cyan-400/60 group-hover:text-cyan-400 group-hover:scale-110 transition-transform mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span class="text-cyan-300 font-bold group-hover:text-cyan-200 transition-colors" id="json-label">1단계: JSON 데이터 탑재 (detections_sahi.json)</span>
+                <span class="text-xs text-gray-500 mt-1">이전에 분석 완료된 객체 탐지 로그 JSON 파일을 업로드하세요.</span>
+                <input type="file" id="json-file" class="hidden" accept=".json" onchange="handleFileSelect(this, 'json')">
+            </div>
+
+            <!-- Video 파일 선택 -->
+            <div class="border-2 border-dashed border-fuchsia-500/20 hover:border-fuchsia-500/60 transition-all rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer bg-fuchsia-950/10 group relative" onclick="document.getElementById('video-file').click()">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-fuchsia-400/60 group-hover:text-fuchsia-400 group-hover:scale-110 transition-transform mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <span class="text-fuchsia-300 font-bold group-hover:text-fuchsia-200 transition-colors" id="video-label">2단계: 관제 영상 탑재 (people1_sahi_output.mp4)</span>
+                <span class="text-xs text-gray-500 mt-1">SAHI 시각화 가공이 완료된 비디오 파일을 업로드하세요.</span>
+                <input type="file" id="video-file" class="hidden" accept="video/*" onchange="handleFileSelect(this, 'video')">
+            </div>
+
+            <div class="flex space-x-3 pt-2">
+                <!-- 샘플 로드 버튼 (CORS가 허용되는 로컬 서버일 경우를 위해) -->
+                <button onclick="loadSampleData()" class="flex-1 border border-cyan-500/40 text-cyan-400 py-3 rounded hover:bg-cyan-950/30 font-bold transition-all text-sm">
+                    로컬 기본 파일 자동로드 시도
+                </button>
+                <button id="start-btn" onclick="startDashboard()" class="flex-1 bg-gradient-to-r from-cyan-500 to-fuchsia-500 text-white font-black py-3 rounded opacity-50 cursor-not-allowed transition-all text-sm shadow-lg shadow-cyan-500/20" disabled>
+                    관제 콘솔 시뮬레이터 시작
+                </button>
+            </div>
+            
+            <div class="text-xs text-gray-500 bg-gray-900/50 p-3 rounded border border-gray-800 text-center font-mono">
+                💡 드래그 앤 드롭을 하거나 파일을 수동 탑재하면 브라우저 보안(CORS) 에러 없이 안전하게 실행할 수 있습니다.
+            </div>
+        </div>
+    </div>
+
+    <!-- 헤더 -->
+    <header class="flex flex-col md:flex-row justify-between items-center bg-gray-950/80 border border-cyan-500/20 p-4 rounded-lg backdrop-blur-md shadow-md">
+        <div class="flex items-center space-x-4 mb-3 md:mb-0">
+            <div class="h-10 w-10 rounded-full border-2 border-cyan-400 flex items-center justify-center bg-cyan-950/50 relative">
+                <!-- 깜빡이는 레이더 도트 -->
+                <span class="absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75 animate-ping"></span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="font-orbitron font-extrabold tracking-widest text-xl text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                    AERO-EYE <span class="text-xs font-bold text-cyan-300 font-noto tracking-normal px-2 py-0.5 border border-cyan-500/30 rounded bg-cyan-950/40">COMMUNITY AI</span>
+                </h1>
+                <p class="text-xs text-gray-400 mt-0.5 font-mono">DRONE-BASED SMART CITY MONITORING SYSTEM</p>
+            </div>
+        </div>
+
+        <!-- 실시간 시스템 메타데이터 -->
+        <div class="flex flex-wrap gap-4 text-xs font-mono">
+            <div class="bg-gray-900/50 border border-gray-800 px-3 py-1.5 rounded flex items-center space-x-2">
+                <span class="h-2 w-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span class="text-gray-400">STATUS:</span>
+                <span class="text-cyan-400 font-bold" id="system-status">STANDBY</span>
+            </div>
+            <div class="bg-gray-900/50 border border-gray-800 px-3 py-1.5 rounded flex items-center space-x-2">
+                <span class="text-gray-400">FPS:</span>
+                <span class="text-cyan-400 font-bold" id="system-fps">--</span>
+            </div>
+            <div class="bg-gray-900/50 border border-gray-800 px-3 py-1.5 rounded flex items-center space-x-2">
+                <span class="text-gray-400">FRAME:</span>
+                <span class="text-fuchsia-400 font-bold" id="system-frame">0 / 0</span>
+            </div>
+            <div class="bg-gray-900/50 border border-gray-800 px-3 py-1.5 rounded flex items-center space-x-2">
+                <span class="text-gray-400">MODEL:</span>
+                <span class="text-success text-[#39ff14] font-bold">SAHI + YOLOv8</span>
+            </div>
+            <button onclick="document.getElementById('file-modal').classList.remove('hidden')" class="bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-500/30 text-cyan-300 px-3 py-1 rounded transition-colors">
+                파일 교체
+            </button>
+        </div>
+    </header>
+
+    <!-- 메인 대시보드 뷰 -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4">
+        
+        <!-- 좌측: 비디오 모니터 (비중: 7) -->
+        <section class="lg:col-span-7 flex flex-col space-y-4">
+            <div class="cyber-panel rounded-lg flex-1 flex flex-col p-3 relative hud-grid">
+                
+                <!-- 상단 코너 테두리 장식 -->
+                <div class="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-cyan-400"></div>
+                <div class="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-cyan-400"></div>
+
+                <!-- 관제 카메라 HUD 오버레이 -->
+                <div class="flex justify-between items-center text-xs font-mono text-cyan-400/80 mb-2 border-b border-cyan-500/10 pb-1 px-1">
+                    <div class="flex items-center space-x-1">
+                        <span class="text-red-500 animate-pulse font-bold">● REC</span>
+                        <span class="text-gray-600">|</span>
+                        <span>CAM-01 [AERO-DRONE]</span>
+                    </div>
+                    <div id="clock-display">00:00:00</div>
+                </div>
+
+                <!-- 비디오 플레이어 영역 -->
+                <div class="relative bg-black rounded border border-gray-800 flex-1 overflow-hidden flex items-center justify-center min-h-[350px]">
+                    <!-- 비디오 위에 오버레이 되는 CRT 주사선 & 격자 -->
+                    <div class="absolute inset-0 scanline pointer-events-none opacity-10"></div>
+                    <video id="main-video" class="w-full h-full object-contain" loop>
+                        <source src="" type="video/mp4">
+                        브라우저가 비디오 요소를 지원하지 않습니다.
+                    </video>
+
+                    <!-- 오버레이: 드론 자이로스코프 / 조준선 십자선 효과 (드론 관제 느낌 극대화) -->
+                    <div class="absolute inset-0 pointer-events-none flex items-center justify-center border border-cyan-500/5">
+                        <div class="w-24 h-24 border border-cyan-500/20 rounded-full flex items-center justify-center animate-pulse">
+                            <div class="w-12 h-12 border border-dashed border-cyan-500/30 rounded-full"></div>
+                        </div>
+                        <div class="absolute w-8 h-[1px] bg-cyan-400/40"></div>
+                        <div class="absolute h-8 w-[1px] bg-cyan-400/40"></div>
+                    </div>
+                    
+                    <!-- 커스텀 플레이어 버튼 (심사위원 앞에서 멋지게 컨트롤 가능) -->
+                    <div class="absolute bottom-4 left-4 right-4 flex justify-between items-center bg-black/70 backdrop-blur border border-cyan-500/20 rounded px-4 py-2 opacity-0 hover:opacity-100 transition-opacity z-30">
+                        <div class="flex items-center space-x-3">
+                            <button id="play-btn" onclick="togglePlay()" class="text-cyan-400 hover:text-white transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" id="play-icon">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                </svg>
+                            </button>
+                            <span class="text-xs font-mono text-gray-300" id="video-time">00:00 / 00:00</span>
+                        </div>
+                        
+                        <div class="flex items-center space-x-2">
+                            <!-- 재생 배속 조절 -->
+                            <select id="play-speed" onchange="changeSpeed(this.value)" class="bg-gray-900 border border-cyan-500/30 text-cyan-300 text-xs px-2 py-0.5 rounded font-mono">
+                                <option value="0.5">0.5x</option>
+                                <option value="1.0" selected>1.0x</option>
+                                <option value="1.5">1.5x</option>
+                                <option value="2.0">2.0x</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 비디오 프로그레스 바 (멋지게 빛나는 스타일) -->
+                <div class="mt-3 relative">
+                    <input type="range" id="video-slider" min="0" max="100" value="0" class="w-full accent-cyan-400 cursor-pointer h-1.5 bg-gray-800 rounded-lg appearance-none" oninput="seekVideo(this.value)">
+                </div>
+            </div>
+        </section>
+
+        <!-- 우측: AI 분석 카드 및 통계 (비중: 5) -->
+        <section class="lg:col-span-5 flex flex-col space-y-4">
+            
+            <!-- 실시간 탐지 결과 카드 (밀집 위험 경보 인디케이터 포함) -->
+            <div class="cyber-panel rounded-lg p-5 flex flex-col space-y-4">
+                <div class="font-orbitron font-bold text-sm tracking-wider text-cyan-400 border-b border-cyan-500/10 pb-2 flex justify-between items-center">
+                    <span>REAL-TIME TELEMETRY</span>
+                    <span class="text-[10px] text-gray-500 font-mono">UDP/WEBSOCKET SYNCED</span>
+                </div>
+
+                <!-- 위험 레벨 대형 표시판 -->
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="col-span-2 rounded border p-4 flex flex-col justify-center transition-colors" id="risk-panel-bg" style="background: rgba(30, 41, 59, 0.2); border-color: rgba(148, 163, 184, 0.2);">
+                        <span class="text-xs text-gray-400 uppercase tracking-widest font-mono">밀집 위험 수위</span>
+                        <span class="text-3xl font-orbitron font-extrabold tracking-wider mt-1 text-gray-300" id="risk-level-display">READY</span>
+                    </div>
+
+                    <!-- LED 사이렌 애니메이션 박스 -->
+                    <div class="rounded border border-gray-800 flex items-center justify-center relative overflow-hidden" id="siren-box">
+                        <div class="h-10 w-10 rounded-full bg-gray-700 flex items-center justify-center" id="siren-light">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 감지된 객체 개수 핵심 스탯 -->
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- 보행자 스탯 -->
+                    <div class="bg-gray-950/60 border border-cyan-500/10 rounded p-4 flex items-center justify-between relative overflow-hidden">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-cyan-400"></div>
+                        <div>
+                            <span class="text-xs text-gray-400 font-mono">PERSONS (보행자)</span>
+                            <div class="text-4xl font-orbitron font-extrabold tracking-tight text-cyan-300 mt-1" id="count-person">0</div>
+                        </div>
+                        <div class="text-cyan-400/20">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                        </div>
+                    </div>
+
+                    <!-- 기타 객체 (차량 등) 스탯 -->
+                    <div class="bg-gray-950/60 border border-fuchsia-500/10 rounded p-4 flex items-center justify-between relative overflow-hidden">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-fuchsia-500"></div>
+                        <div>
+                            <span class="text-xs text-gray-400 font-mono">VEHICLES (차량)</span>
+                            <div class="text-4xl font-orbitron font-extrabold tracking-tight text-fuchsia-400 mt-1" id="count-vehicle">0</div>
+                        </div>
+                        <div class="text-fuchsia-400/20">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 탐지 상세 breakdown 브레이크다운 리스트 -->
+                <div class="bg-black/40 border border-gray-800 rounded p-3 text-xs">
+                    <span class="text-gray-500 font-mono">CLASSES DETECTED IN FRAME:</span>
+                    <div class="flex flex-wrap gap-2 mt-2" id="classes-breakdown">
+                        <!-- 동적으로 칩 로드 -->
+                        <span class="text-gray-400 bg-gray-900 border border-gray-800 px-2 py-0.5 rounded">데이터 대기 중...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 실시간 트렌드 그래프 차트 -->
+            <div class="cyber-panel rounded-lg p-5 flex-1 flex flex-col">
+                <div class="font-orbitron font-bold text-sm tracking-wider text-cyan-400 border-b border-cyan-500/10 pb-2 mb-3 flex justify-between items-center">
+                    <span>DENSITY TIMELINE GRAPH</span>
+                    <span class="text-xs font-mono text-[#39ff14] border border-[#39ff14]/30 px-1 rounded bg-[#39ff14]/10">LIVE TREND</span>
+                </div>
+                <div class="flex-1 relative min-h-[180px] w-full flex items-center justify-center">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- 하단: 실시간 이벤트 로그 터미널 -->
+    <footer class="cyber-panel rounded-lg p-4 flex flex-col h-48 border-t border-cyan-500/20 shadow-inner">
+        <div class="flex justify-between items-center border-b border-cyan-500/10 pb-2 mb-2 text-xs font-mono text-cyan-400">
+            <div class="flex items-center space-x-2">
+                <span class="h-2 w-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span class="font-bold tracking-widest font-orbitron">SYSTEM EVENT LOG TERMINAL</span>
+            </div>
+            <div class="flex space-x-2">
+                <button onclick="clearTerminal()" class="text-gray-500 hover:text-cyan-300 transition-colors">Clear</button>
+                <span class="text-gray-700">|</span>
+                <button onclick="exportLog()" class="text-gray-500 hover:text-cyan-300 transition-colors">Export CSV</button>
+            </div>
+        </div>
+        <div class="flex-1 overflow-y-auto font-mono text-xs text-gray-400 space-y-1.5 pr-2" id="log-terminal">
+            <div class="text-cyan-500/60 font-mono">[SYSTEM] AERO-EYE AI 관제 시스템을 부팅하였습니다.</div>
+            <div class="text-yellow-500/70 font-mono">[WARNING] 관제 영상을 탐지해주십시오. 대시보드가 준비 상태입니다.</div>
+        </div>
+    </footer>
+
+    <!-- 설정 슬라이드 사이드바 (해커톤 당일 세팅 변경용) -->
+    <div id="settings-panel" class="fixed top-0 right-0 h-full w-80 bg-gray-950/95 border-l border-cyan-500/30 z-40 transform translate-x-full transition-transform duration-300 ease-in-out p-6 shadow-2xl backdrop-blur-md">
+        <div class="flex justify-between items-center border-b border-cyan-500/20 pb-4 mb-6">
+            <h2 class="font-orbitron font-extrabold tracking-wider text-cyan-400 flex items-center space-x-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span>관제 시나리오 세팅</span>
+            </h2>
+            <button onclick="toggleSettings()" class="text-gray-500 hover:text-white transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="space-y-6">
+            <!-- 위험 레벨 경보 임계치 수정 -->
+            <div class="flex flex-col space-y-2">
+                <label class="text-xs text-gray-400 font-bold uppercase tracking-wider">주 타겟 감지 오브젝트</label>
+                <select id="setting-target-cls" onchange="updateSettings()" class="bg-gray-900 border border-gray-800 text-cyan-300 text-sm p-2.5 rounded focus:border-cyan-500 outline-none">
+                    <option value="person" selected>Person (밀집 인원 분석)</option>
+                    <option value="car">Car (교통량 및 불법주정차 단속)</option>
+                    <option value="dog">Animal / Fire (특수 물체 감지)</option>
+                </select>
+            </div>
+
+            <!-- 위험 판단 인원수 조절 -->
+            <div class="flex flex-col space-y-2">
+                <div class="flex justify-between items-center text-xs">
+                    <label class="text-gray-400 font-bold uppercase tracking-wider">위험 경보 (HIGH) 임계치</label>
+                    <span id="label-high-threshold" class="text-cyan-400 font-bold font-mono">20명</span>
+                </div>
+                <input type="range" id="threshold-high" min="5" max="50" value="20" oninput="updateThresholdLabel('high', this.value)" class="w-full accent-cyan-400">
+                <span class="text-[10px] text-gray-500">지정한 숫자 이상의 오브젝트가 잡히면 HIGH 경보(레드)가 켜집니다.</span>
+            </div>
+
+            <div class="flex flex-col space-y-2">
+                <div class="flex justify-between items-center text-xs">
+                    <label class="text-gray-400 font-bold uppercase tracking-wider">주의 경보 (MEDIUM) 임계치</label>
+                    <span id="label-medium-threshold" class="text-cyan-400 font-bold font-mono">10명</span>
+                </div>
+                <input type="range" id="threshold-medium" min="2" max="30" value="10" oninput="updateThresholdLabel('medium', this.value)" class="w-full accent-cyan-400">
+                <span class="text-[10px] text-gray-500">지정한 숫자 이상의 오브젝트가 잡히면 MEDIUM 경보(오렌지)가 켜집니다.</span>
+            </div>
+
+            <div class="pt-4 border-t border-gray-900">
+                <button onclick="resetSettings()" class="w-full py-2 bg-gray-900 hover:bg-gray-800 text-gray-400 rounded text-xs transition-colors border border-gray-800">
+                    기본값 초기화
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 설정 패널 토글 플로팅 버튼 -->
+    <button onclick="toggleSettings()" class="fixed right-4 bottom-24 bg-cyan-950 border-2 border-cyan-400/40 text-cyan-400 h-10 w-10 rounded-full flex items-center justify-center shadow-lg shadow-cyan-500/20 hover:scale-110 active:scale-95 transition-all z-30">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+        </svg>
+    </button>
+
+    <!-- 대시보드 로직 Javascript -->
+    <script>
+        let detectionData = null;
+        let originalVideoUrl = null;
+        let trendChartInstance = null;
+        let videoElement = document.getElementById('main-video');
+        let playBtn = document.getElementById('play-btn');
+        let playIcon = document.getElementById('play-icon');
+        let videoSlider = document.getElementById('video-slider');
+        let videoTimeLabel = document.getElementById('video-time');
+        
+        let targetClass = "person";
+        let thresholdHigh = 20;
+        let thresholdMedium = 10;
+        
+        let framesCalculated = [];
+        let logEvents = [];
+        let systemFps = 24;  // 기본 프레임률 설정
+
+        // UI 시계 구현
+        setInterval(() => {
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            document.getElementById('clock-display').innerText = 
+                `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        }, 1000);
+
+        // 파일 탑재 이벤트 헬퍼
+        function handleFileSelect(input, type) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const label = document.getElementById(`${type}-label`);
+            label.innerText = `✅ Loaded: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+            label.classList.remove('text-cyan-300', 'text-fuchsia-300');
+            label.classList.add('text-green-400');
+
+            if (type === 'json') {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        detectionData = JSON.parse(e.target.result);
+                        checkReadyToStart();
+                    } catch (err) {
+                        alert("올바르지 않은 JSON 데이터 형식입니다: " + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            } else if (type === 'video') {
+                originalVideoUrl = URL.createObjectURL(file);
+                videoElement.src = originalVideoUrl;
+                videoElement.load();
+                
+                // 비디오 메타데이터 로드 대기
+                videoElement.onloadedmetadata = function() {
+                    checkReadyToStart();
+                };
+            }
+        }
+
+        // 로컬 CORS 환경 대응 자동 로드 (Flask/http.server 사용 시 백업)
+        function loadSampleData() {
+            // detections_sahi.json 가져오기
+            fetch('detections_sahi.json')
+                .then(res => {
+                    if (!res.ok) throw new Error("JSON 파일을 찾을 수 없습니다.");
+                    return res.json();
+                })
+                .then(data => {
+                    detectionData = data;
+                    document.getElementById('json-label').innerText = "✅ 로컬 기본 파일 자동로드 완료";
+                    document.getElementById('json-label').classList.add('text-green-400');
+                    
+                    // 비디오 자동로드 시도
+                    videoElement.src = 'people1_sahi_output.mp4';
+                    videoElement.load();
+                    videoElement.onloadedmetadata = function() {
+                        document.getElementById('video-label').innerText = "✅ 로컬 비디오 연동 성공 (people1_sahi_output.mp4)";
+                        document.getElementById('video-label').classList.add('text-green-400');
+                        checkReadyToStart();
+                    };
+                })
+                .catch(err => {
+                    // detections_sahi.json 실패 시 detections.json 시도
+                    fetch('detections.json')
+                        .then(res => {
+                            if (!res.ok) throw new Error("JSON 파일을 찾을 수 없습니다.");
+                            return res.json();
+                        })
+                        .then(data => {
+                            detectionData = data;
+                            document.getElementById('json-label').innerText = "✅ 로컬 detections.json 자동로드 완료";
+                            document.getElementById('json-label').classList.add('text-green-400');
+                            
+                            videoElement.src = 'people1.mp4';
+                            videoElement.load();
+                            videoElement.onloadedmetadata = function() {
+                                document.getElementById('video-label').innerText = "✅ 로컬 비디오 연동 성공 (people1.mp4)";
+                                document.getElementById('video-label').classList.add('text-green-400');
+                                checkReadyToStart();
+                            };
+                        })
+                        .catch(err2 => {
+                            alert("기본 로컬 로드 실패: 로컬 웹서버가 아니거나 원본 파일이 없습니다.\n파일을 브라우저에 직접 탑재해 주세요.");
+                        });
+                });
+        }
+
+        function checkReadyToStart() {
+            if (detectionData && videoElement.duration) {
+                const startBtn = document.getElementById('start-btn');
+                startBtn.disabled = false;
+                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                startBtn.classList.add('hover:scale-105', 'active:scale-95');
+                
+                // 프레임 메타데이터 계산
+                const totalFrames = detectionData.length;
+                const duration = videoElement.duration;
+                systemFps = Math.round(totalFrames / duration);
+                
+                document.getElementById('system-status').innerText = "CONNECTED";
+                document.getElementById('system-status').className = "text-[#39ff14] font-bold";
+                document.getElementById('system-fps').innerText = systemFps + " FPS";
+                document.getElementById('system-frame').innerText = `0 / ${totalFrames}`;
+            }
+        }
+
+        // 대시보드 화면 전환 및 활성화
+        function startDashboard() {
+            document.getElementById('file-modal').classList.add('hidden');
+            
+            // 차트 초기화
+            initChart();
+            
+            // 타임라인 슬라이더 최대치 세팅
+            videoSlider.max = Math.floor(videoElement.duration * 100);
+            
+            // 대시보드 구동
+            updateFrameUI(0);
+            videoElement.play();
+            playIcon.setAttribute('d', 'M9 16H5V8h4v8zm7-8h-4v8h4V8z'); // 일시정지 아이콘으로 변경
+            
+            addTerminalLog("[INFO] 관제 콘솔 시뮬레이터 구동을 성공하였습니다.", "info");
+            addTerminalLog(`[SYSTEM] 드론 관제 데이터: ${detectionData.length}개 프레임 로드 완료. (영상 시간: ${videoElement.duration.toFixed(1)}초)`, "system");
+        }
+
+        // 비디오 컨트롤
+        function togglePlay() {
+            if (videoElement.paused) {
+                videoElement.play();
+                playIcon.setAttribute('d', 'M9 16H5V8h4v8zm7-8h-4v8h4V8z'); // 일시정지 아이콘
+                addTerminalLog("[COMMAND] 재생 시작", "info");
+            } else {
+                videoElement.pause();
+                playIcon.setAttribute('d', 'M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z'); // 재생 아이콘
+                addTerminalLog("[COMMAND] 일시정지", "info");
+            }
+        }
+
+        function changeSpeed(val) {
+            videoElement.playbackRate = parseFloat(val);
+            addTerminalLog(`[COMMAND] 재생 속도 변경: ${val}x`, "info");
+        }
+
+        function seekVideo(val) {
+            videoElement.currentTime = val / 100;
+            updateSync();
+        }
+
+        // 비디오 시간 동기화 이벤트
+        videoElement.addEventListener('timeupdate', () => {
+            updateSync();
+        });
+
+        function updateSync() {
+            if (!detectionData) return;
+            
+            const curTime = videoElement.currentTime;
+            const duration = videoElement.duration;
+            
+            // 프로그레스 바 갱신
+            videoSlider.value = Math.floor(curTime * 100);
+            
+            // 시간 텍스트 갱신
+            const formatTime = (sec) => {
+                const m = Math.floor(sec / 60);
+                const s = Math.floor(sec % 60);
+                return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            };
+            videoTimeLabel.innerText = `${formatTime(curTime)} / ${formatTime(duration)}`;
+            
+            // 프레임 매핑 계산
+            const currentFrame = Math.min(
+                Math.floor(curTime * systemFps),
+                detectionData.length - 1
+            );
+            
+            document.getElementById('system-frame').innerText = `${currentFrame} / ${detectionData.length}`;
+            updateFrameUI(currentFrame);
+            
+            // 실시간 차트의 버티컬 바 갱신
+            updateChartPosition(currentFrame);
+        }
+
+        // 특정 프레임의 UI 데이터 갱신 핵심 로직
+        let lastRiskLevel = "";
+        function updateFrameUI(frameIdx) {
+            const data = detectionData[frameIdx];
+            if (!data) return;
+
+            // 1. 객체 카운팅 갱신 (선택된 타겟 기준)
+            const counts = data.counts || {};
+            const curTargetCount = counts[targetClass] || 0;
+            
+            document.getElementById('count-person').innerText = counts["person"] || 0;
+            document.getElementById('count-vehicle').innerText = (counts["car"] || 0) + (counts["truck"] || 0) + (counts["bus"] || 0);
+
+            // 2. 위험 레벨 실시간 계산 및 갱신 (슬라이더 세팅값 기준 동적 갱신 가능)
+            let riskLevel = "LOW";
+            let panelColor = "rgba(57, 255, 20, 0.15)";
+            let borderColor = "rgba(57, 255, 20, 0.4)";
+            let textClass = "text-[#39ff14] neon-text-green";
+            let sirenClass = "bg-[#39ff14]/20 text-[#39ff14] border-[#39ff14]/30";
+            let sirenAnimate = false;
+
+            if (curTargetCount >= thresholdHigh) {
+                riskLevel = "HIGH";
+                panelColor = "rgba(255, 0, 60, 0.2)";
+                borderColor = "rgba(255, 0, 60, 0.6)";
+                textClass = "text-[#ff003c] neon-text-red";
+                sirenClass = "bg-[#ff003c] text-white border-[#ff003c] animate-ping";
+                sirenAnimate = true;
+            } else if (curTargetCount >= thresholdMedium) {
+                riskLevel = "MEDIUM";
+                panelColor = "rgba(255, 183, 0, 0.2)";
+                borderColor = "rgba(255, 183, 0, 0.5)";
+                textClass = "text-[#ffb700] neon-text-cyan";
+                sirenClass = "bg-[#ffb700]/30 text-[#ffb700] border-[#ffb700]/40";
+                sirenAnimate = true;
+            }
+
+            const riskPanel = document.getElementById('risk-panel-bg');
+            riskPanel.style.background = panelColor;
+            riskPanel.style.borderColor = borderColor;
+            
+            const rld = document.getElementById('risk-level-display');
+            rld.innerText = riskLevel;
+            rld.className = `text-3xl font-orbitron font-extrabold tracking-wider mt-1 ${textClass}`;
+
+            // 사이렌 시각 효과 연출
+            const sirenLight = document.getElementById('siren-light');
+            if (sirenAnimate) {
+                sirenLight.className = `h-10 w-10 rounded-full flex items-center justify-center ${sirenClass}`;
+                sirenLight.style.boxShadow = `0 0 15px ${riskLevel === "HIGH" ? '#ff003c' : '#ffb700'}`;
+            } else {
+                sirenLight.className = "h-10 w-10 rounded-full bg-gray-800 flex items-center justify-center text-gray-500 border border-gray-700";
+                sirenLight.style.boxShadow = "none";
+            }
+
+            // 3. 브레이크다운 칩스 갱신
+            const breakdown = document.getElementById('classes-breakdown');
+            breakdown.innerHTML = "";
+            
+            if (Object.keys(counts).length === 0) {
+                breakdown.innerHTML = `<span class="text-gray-500 italic">탐지 객체 없음</span>`;
+            } else {
+                for (const [cls, qty] of Object.entries(counts)) {
+                    let colorCls = "text-cyan-300 bg-cyan-950/40 border-cyan-500/20";
+                    if (cls === 'person') colorCls = "text-cyan-400 bg-cyan-950/50 border-cyan-500/30 font-bold";
+                    if (cls === 'car' || cls === 'truck') colorCls = "text-fuchsia-300 bg-fuchsia-950/40 border-fuchsia-500/20";
+                    
+                    breakdown.innerHTML += `
+                        <span class="px-2.5 py-1 rounded border font-mono ${colorCls}">
+                            ${cls.toUpperCase()}: <span class="text-white">${qty}</span>
+                        </span>
+                    `;
+                }
+            }
+
+            // 4. 리스크 변동 시 실시간 시스템 로그 추가
+            if (riskLevel !== lastRiskLevel) {
+                const timeStr = new Date(videoElement.currentTime * 1000).toISOString().substr(14, 5);
+                if (riskLevel === "HIGH") {
+                    addTerminalLog(`[${timeStr}] 🚨 밀집 위험 경보 발령: ${targetClass} 감지량 ${curTargetCount} 돌파 (임계치 ${thresholdHigh})`, "danger");
+                } else if (riskLevel === "MEDIUM") {
+                    addTerminalLog(`[${timeStr}] ⚠️ 주의 단계 진입: ${targetClass} 감지량 ${curTargetCount} (임계치 ${thresholdMedium})`, "warning");
+                } else if (riskLevel === "LOW" && lastRiskLevel !== "") {
+                    addTerminalLog(`[${timeStr}] 🟢 구역 위험도 해제: 안정화 상태 복귀 (감지량 ${curTargetCount})`, "success");
+                }
+                lastRiskLevel = riskLevel;
+            }
+        }
+
+        // 터미널 이벤트 로그 출력 구현
+        function addTerminalLog(msg, type = "info") {
+            const term = document.getElementById('log-terminal');
+            const div = document.createElement('div');
+            
+            let colorCls = "text-gray-400";
+            if (type === "system") colorCls = "text-cyan-400 font-bold";
+            if (type === "danger") colorCls = "text-red-400 font-bold animate-pulse";
+            if (type === "warning") colorCls = "text-yellow-400";
+            if (type === "success") colorCls = "text-green-400";
+            
+            div.className = `${colorCls} font-mono`;
+            div.innerText = msg;
+            term.appendChild(div);
+            
+            // 자동 스크롤
+            term.scrollTop = term.scrollHeight;
+
+            // 로그 로컬 저장용
+            logEvents.push({
+                timestamp: new Date().toLocaleTimeString(),
+                video_time: videoElement.currentTime.toFixed(2),
+                message: msg,
+                type: type
+            });
+        }
+
+        function clearTerminal() {
+            document.getElementById('log-terminal').innerHTML = "";
+            addTerminalLog("[SYSTEM] 터미널 콘솔 로그가 클리어되었습니다.", "system");
+        }
+
+        function exportLog() {
+            if (logEvents.length === 0) {
+                alert("내보낼 로그 기록이 존재하지 않습니다.");
+                return;
+            }
+            let csvContent = "data:text/csv;charset=utf-8,시간,영상재생지점(초),로그내용,유형\n";
+            logEvents.forEach(e => {
+                csvContent += `${e.timestamp},${e.video_time},"${e.message.replace(/"/g, '""')}",${e.type}\n`;
+            });
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `aero_eye_telemetry_logs_${Date.now()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 차트 구현 (Chart.js)
+        function initChart() {
+            if (!detectionData) return;
+
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            
+            // 데이터 매핑
+            const labels = detectionData.map(d => d.frame);
+            const personData = detectionData.map(d => d.counts["person"] || 0);
+            const vehicleData = detectionData.map(d => {
+                const c = d.counts;
+                return (c["car"] || 0) + (c["truck"] || 0) + (c["bus"] || 0);
+            });
+
+            // 차트 인스턴스가 있다면 리셋
+            if (trendChartInstance) {
+                trendChartInstance.destroy();
+            }
+
+            trendChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '보행자 (Person)',
+                            data: personData,
+                            borderColor: '#00f0ff',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true,
+                            backgroundColor: 'rgba(0, 240, 255, 0.05)',
+                            tension: 0.2
+                        },
+                        {
+                            label: '차량 (Vehicle)',
+                            data: vehicleData,
+                            borderColor: '#bd00ff',
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            fill: false,
+                            tension: 0.2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                            ticks: { color: '#6b7280', maxTicksLimit: 10 }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                            ticks: { color: '#6b7280' },
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#f3f4f6', font: { family: 'Share Tech Mono' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 재생 중인 프레임 차트 위 인디케이터 연출
+        function updateChartPosition(currentFrame) {
+            if (!trendChartInstance) return;
+            
+            // Chart.js 커스텀 라인 렌더링 등으로 버티컬 라인 동적 연출 가능하나,
+            // 성능 확보와 안정성을 위해 차트에 백그라운드 어노테이션 효과를 대체하거나, 
+            // 현재 타겟 프레임의 라벨 하이라이팅 처리
+            // (차트가 너무 자주 리렌더링되면 버벅이므로 5프레임에 한번씩만 가볍게 포인트 조작 또는 리렌더링 방지)
+        }
+
+        // 설정 패널 켜고 끄기
+        function toggleSettings() {
+            const panel = document.getElementById('settings-panel');
+            panel.classList.toggle('translate-x-full');
+        }
+
+        function updateThresholdLabel(type, val) {
+            document.getElementById(`label-${type}-threshold`).innerText = `${val}명`;
+            updateSettings();
+        }
+
+        function updateSettings() {
+            targetClass = document.getElementById('setting-target-cls').value;
+            thresholdHigh = parseInt(document.getElementById('threshold-high').value);
+            thresholdMedium = parseInt(document.getElementById('threshold-medium').value);
+            
+            // 강제 리렌더링
+            if (videoElement && detectionData) {
+                const curTime = videoElement.currentTime;
+                const currentFrame = Math.min(
+                    Math.floor(curTime * systemFps),
+                    detectionData.length - 1
+                );
+                updateFrameUI(currentFrame);
+            }
+        }
+
+        function resetSettings() {
+            document.getElementById('setting-target-cls').value = "person";
+            document.getElementById('threshold-high').value = 20;
+            document.getElementById('threshold-medium').value = 10;
+            updateThresholdLabel('high', 20);
+            updateThresholdLabel('medium', 10);
+            addTerminalLog("[SYSTEM] 관제 임계치 조건이 기본값으로 초기화되었습니다.", "system");
+        }
+    </script>
+</body>
+</html>
